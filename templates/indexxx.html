@@ -145,7 +145,8 @@
         const statusMessage = document.getElementById('status-message');
 
         // 1. Kết nối SocketIO
-        const socket = io.connect('http://' + document.domain + ':' + location.port);
+        //const socket = io.connect('http://' + document.domain + ':' + location.port);
+        const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
 
         socket.on('connect', () => {
             console.log('Socket connected!');
