@@ -1,7 +1,8 @@
 flask==3.0.0
 flask-socketio==5.3.6
 eventlet==0.33.3
-tensorflow-cpu==2.15.0
-numpy==1.26.2
+tensorflow==2.17.0
+numpy==1.26.4
 mediapipe==0.10.9
 gunicorn==21.2.0
+h5py==3.10.0
