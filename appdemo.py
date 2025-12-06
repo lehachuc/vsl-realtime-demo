@@ -1,32 +1,35 @@
 import os
 import numpy as np
-import mediapipe as mp
+import tensorflow as tf # Vẫn cần TF nhưng chỉ dùng phần Lite
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
-from tensorflow.keras.models import load_model
-import eventlet # Cần thiết cho server
+import eventlet
 
 # ================================================================
-# 1. KHỞI TẠO ỨNG DỤNG FLASK VÀ SOCKETIO
+# 1. KHỞI TẠO ỨNG DỤNG
 # ================================================================
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key_here_v5_realtime'
-# socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*") 
-# Tăng giới hạn gói tin từ 16 (mặc định) lên 200
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*", max_decode_packets=200)
 
 # ================================================================
-# 2. TẢI MÔ HÌNH VÀ CÁC THIẾT LẬP
+# 2. TẢI MÔ HÌNH TFLITE (SIÊU NHẸ)
 # ================================================================
 
 try:
-    model = load_model("vsl_lstm_model_v2.h5")
-except Exception as e:
-    print(f"Lỗi khi tải mô hình: {e}")
-    exit()
+    # Tải TFLite Interpreter
+    interpreter = tf.lite.Interpreter(model_path="model.tflite")
+    interpreter.allocate_tensors()
 
-# mp_holistic và holistic_video đã được xóa (không cần cho upload)
+    # Lấy thông tin input/output
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    
+    print("Đã tải model TFLite thành công!")
+except Exception as e:
+    print(f"Lỗi khi tải mô hình TFLite: {e}")
+    exit()
 
 actions = [
     'ban dang lam gi', 'ban di dau the', 'ban hieu ngon ngu ky hieu khong', 'ban hoc lop may', 'ban khoe khong', 
@@ -44,49 +47,32 @@ actions = [
 ]
 
 # ================================================================
-# 3. HÀM HỖ TRỢ (Chỉ giữ lại Resample)
+# 3. HÀM HỖ TRỢ
 # ================================================================
 
-# (Hàm extract_keypoints đã bị xóa vì không dùng ở backend)
-
 def resample_keypoints(all_keypoints, target_frames=60):
-    """Giãn/Nén số keyframes về 60 frames"""
     if len(all_keypoints) == 0:
         return np.zeros((target_frames, 126))
-    
     indices = np.linspace(0, len(all_keypoints) - 1, target_frames, dtype=int)
     resampled = [all_keypoints[i] for i in indices]
     return np.array(resampled)
 
 # ================================================================
-# 4. ROUTE CHÍNH (Trang web)
+# 4. ROUTE & SOCKET
 # ================================================================
 
 @app.route('/')
 def index():
-    # Đổi tên file html cho gọn (tùy bạn)
-    return render_template('indexxx.html') 
+    return render_template('indexxx.html')
 
-# ================================================================
-# 5. API CHO "UPLOAD VIDEO" (ĐÃ XÓA)
-# ================================================================
-# (Toàn bộ route @app.route('/upload') đã bị xóa)
-# ================================================================
-
-# ================================================================
-# 6. API CHO "REAL-TIME" (SocketIO) - Giữ nguyên
-# ================================================================
-
-# Các hằng số cho máy trạng thái (state machine)    
-FPS = 30 # Giả định
+FPS = 30
 PREPARE_SECONDS = 3
 RECORDING_SECONDS = 5
 PREPARE_FRAMES = PREPARE_SECONDS * FPS
 RECORDING_FRAMES = RECORDING_SECONDS * FPS
 
-# Biến toàn cục để lưu trạng thái
 user_state = {
-    'app_state': 'IDLE',          # IDLE, COUNTDOWN, RECORDING, PREDICTING
+    'app_state': 'IDLE',
     'recording_sequence': [],
     'timer': 0
 }
@@ -98,75 +84,74 @@ def handle_connect():
     print(f'Client {request.sid} connected. State reset.')
     emit('status', {'state': 'IDLE', 'message': 'Chờ phát hiện tay...'})
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f'Client {request.sid} disconnected')
-
 @socketio.on('keypoints')
 def handle_keypoints(data):
-    """Đây là nơi tái hiện logic v5.0 (Ghi hình 5 giây)"""
     global user_state
-    
-    keypoints = np.array(data['keypoints'])
-    has_hands = np.any(keypoints != 0) # Sửa lỗi 1 tay
-    
-    app_state = user_state['app_state']
-    
-    if has_hands:
-        if app_state == 'IDLE':
-            # 1. Bắt đầu đếm ngược (chuẩn bị)
-            user_state['app_state'] = 'COUNTDOWN'
-            user_state['timer'] = PREPARE_FRAMES
-            emit('status', {'state': 'COUNTDOWN', 'time': PREPARE_SECONDS})
-            
-        elif app_state == 'COUNTDOWN':
-            # 2. Đang đếm ngược
-            user_state['timer'] -= 1
-            remaining_sec = (user_state['timer'] // FPS) + 1
-            emit('status', {'state': 'COUNTDOWN', 'time': remaining_sec})
-            
-            if user_state['timer'] <= 0:
-                # Bắt đầu ghi hình
-                user_state['app_state'] = 'RECORDING'
-                user_state['timer'] = RECORDING_FRAMES
-                user_state['recording_sequence'] = [] # Xóa bộ đệm ghi hình
-                emit('status', {'state': 'RECORDING', 'time': RECORDING_SECONDS})
+    try:
+        keypoints = np.array(data['keypoints'])
+        has_hands = np.any(keypoints != 0) 
+        app_state = user_state['app_state']
         
-        elif app_state == 'RECORDING':
-            # 3. Đang ghi hình (5 giây)
-            user_state['recording_sequence'].append(keypoints) # Lưu frame
-            user_state['timer'] -= 1
-            remaining_sec = (user_state['timer'] // FPS) + 1
-            emit('status', {'state': 'RECORDING', 'time': remaining_sec})
-            
-            if user_state['timer'] <= 0:
-                # Hết 5 giây -> Bắt đầu dự đoán
-                user_state['app_state'] = 'PREDICTING'
-                emit('status', {'state': 'PREDICTING', 'message': 'Đang xử lý...'})
-                socketio.sleep(0.5) # Cho client kịp nhận trạng thái
+        if has_hands:
+            if app_state == 'IDLE':
+                user_state['app_state'] = 'COUNTDOWN'
+                user_state['timer'] = PREPARE_FRAMES
+                emit('status', {'state': 'COUNTDOWN', 'time': PREPARE_SECONDS})
+            elif app_state == 'COUNTDOWN':
+                user_state['timer'] -= 1
+                remaining_sec = (user_state['timer'] // FPS) + 1
+                emit('status', {'state': 'COUNTDOWN', 'time': remaining_sec})
+                if user_state['timer'] <= 0:
+                    user_state['app_state'] = 'RECORDING'
+                    user_state['timer'] = RECORDING_FRAMES
+                    user_state['recording_sequence'] = [] 
+                    emit('status', {'state': 'RECORDING', 'time': RECORDING_SECONDS})
+            elif app_state == 'RECORDING':
+                user_state['recording_sequence'].append(keypoints)
+                user_state['timer'] -= 1
+                remaining_sec = (user_state['timer'] // FPS) + 1
+                emit('status', {'state': 'RECORDING', 'time': remaining_sec})
+                
+                if user_state['timer'] <= 0:
+                    user_state['app_state'] = 'PREDICTING'
+                    emit('status', {'state': 'PREDICTING', 'message': 'Đang xử lý...'})
+                    socketio.sleep(0.5)
 
-                # Lấy mẫu lại 150 frames -> 60 frames
-                sequence = resample_keypoints(user_state['recording_sequence'], 60)
-                
-                # Dự đoán
-                res = model.predict(np.expand_dims(sequence, axis=0), verbose=0)[0]
-                predicted_action = actions[np.argmax(res)]
-                
-                # Gửi kết quả và reset
-                emit('prediction', {'sentence': predicted_action})
+                    # --- DỰ ĐOÁN BẰNG TFLITE ---
+                    try:
+                        # 1. Chuẩn bị dữ liệu
+                        sequence = resample_keypoints(user_state['recording_sequence'], 60)
+                        input_data = np.expand_dims(sequence, axis=0).astype(np.float32)
+
+                        # 2. Đặt dữ liệu vào TFLite
+                        interpreter.set_tensor(input_details[0]['index'], input_data)
+
+                        # 3. Chạy dự đoán
+                        interpreter.invoke()
+
+                        # 4. Lấy kết quả
+                        output_data = interpreter.get_tensor(output_details[0]['index'])[0]
+                        
+                        predicted_index = np.argmax(output_data)
+                        predicted_action = actions[predicted_index]
+                        
+                        print(f"Kết quả TFLite: {predicted_action}", flush=True)
+                        emit('prediction', {'sentence': predicted_action})
+                        
+                    except Exception as e:
+                        print(f"LỖI TFLITE: {e}", flush=True)
+                        emit('prediction', {'sentence': f"Lỗi: {str(e)}"})
+                    
+                    user_state['app_state'] = 'IDLE'
+                    emit('status', {'state': 'IDLE', 'message': 'Chờ phát hiện tay...'})
+
+        else:
+            if app_state == 'COUNTDOWN' or app_state == 'RECORDING':
                 user_state['app_state'] = 'IDLE'
-                emit('status', {'state': 'IDLE', 'message': 'Chờ phát hiện tay...'})
+                emit('status', {'state': 'IDLE', 'message': 'Đã hủy.'})
 
-    else: # Không phát hiện thấy tay
-        if app_state == 'COUNTDOWN' or app_state == 'RECORDING':
-            # Nếu đang đếm ngược hoặc đang ghi mà hạ tay -> Hủy
-            user_state['app_state'] = 'IDLE'
-            emit('status', {'state': 'IDLE', 'message': 'Đã hủy. Chờ phát hiện tay...'})
-
-# ================================================================
-# 7. CHẠY ỨNG DỤNG
-# ================================================================
+    except Exception as e:
+        print(f"LỖI CHUNG: {e}", flush=True)
 
 if __name__ == '__main__':
-    print("Starting Flask server... Mở http://127.0.0.1:5000")
     socketio.run(app, host='0.0.0.0', port=5000)
