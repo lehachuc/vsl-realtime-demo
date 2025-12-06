@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Nhận diện VSL (Real-time)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #0d47a1; /* Xanh đậm */
+        }
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            overflow: hidden;
+            padding: 25px; /* Đã xóa Tabs, thêm padding trực tiếp */
+        }
+        
+        /* Đã xóa CSS cho Tabs */
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #222;
+        }
+        #webcam {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1);
+        }
+        #output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+        }
+        #status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #status-overlay.visible {
+            opacity: 1;
+        }
+        #status-timer {
+            font-size: 80px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 0 10px black;
+        }
+        #status-message {
+            font-size: 24px;
+            color: white;
+            margin-top: 10px;
+        }
+        .results-bar {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #final-prediction-text {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #d32f2f;
+            height: 50px;
+            min-height: 50px;
+        }
+        
+        /* Đã xóa CSS cho Upload */
+
+    </style>
+</head>
+<body>
+
+    <h1>Demo Nhận diện Ngôn ngữ Ký hiệu VSL</h1>
+
+    <div class="container">
+        
+        <div id="live" class="tab-content active">
+            <div class="video-container">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="output_canvas" width="640" height="480"></canvas>
+                <div id="status-overlay">
+                    <div id="status-timer"></div>
+                    <div id="status-message"></div>
+                </div>
+            </div>
+            <div class="results-bar">
+                <div id="final-prediction-text"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ========================================================
+        // Đã xóa Javascript của Tabs và Upload
+        // ========================================================
+
+        // ========================================================
+        // LOGIC CHO TAB REAL-TIME (Giữ nguyên)
+        // ========================================================
+
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const predictionText = document.getElementById('final-prediction-text');
+        
+        const statusOverlay = document.getElementById('status-overlay');
+        const statusTimer = document.getElementById('status-timer');
+        const statusMessage = document.getElementById('status-message');
+
+        // 1. Kết nối SocketIO
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        socket.on('connect', () => {
+            console.log('Socket connected!');
+        });
+        socket.on('status', (data) => {
+            let state = data.state;
+            if (state === 'IDLE') {
+                statusOverlay.classList.remove('visible');
+            } else if (state === 'COUNTDOWN') {
+                statusMessage.textContent = 'CHUẨN BỊ...';
+                statusTimer.textContent = data.time;
+                statusOverlay.classList.add('visible');
+            } else if (state === 'RECORDING') {
+                statusMessage.textContent = 'GHI HÌNH...';
+                statusTimer.textContent = data.time;
+                statusOverlay.classList.add('visible');
+                predictionText.textContent = "";
+            } else if (state === 'PREDICTING') {
+                statusMessage.textContent = 'ĐANG XỬ LÝ';
+                statusTimer.textContent = '...';
+                statusOverlay.classList.add('visible');
+            }
+        });
+        socket.on('prediction', (data) => {
+            predictionText.textContent = data.sentence;
+        });
+
+        // 2. Hàm trích xuất keypoints (không đổi)
+        function extractKeypointsJS(results) {
+            const lh = results.leftHandLandmarks ? results.leftHandLandmarks.flatMap(res => [res.x, res.y, res.z]) : new Array(21 * 3).fill(0);
+            const rh = results.rightHandLandmarks ? results.rightHandLandmarks.flatMap(res => [res.x, res.y, res.z]) : new Array(21 * 3).fill(0);
+            return lh.concat(rh);
+        }
+
+        // 3. Xử lý khi nhận kết quả từ MediaPipe (không đổi)
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            if (results.leftHandLandmarks) {
+                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: '#CC0000', lineWidth: 5});
+                drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#00FF00', lineWidth: 2});
+            }
+            if (results.rightHandLandmarks) {
+                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: '#00CC00', lineWidth: 5});
+                drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#FF0000', lineWidth: 2});
+            }
+            canvasCtx.restore();
+            const keypoints = extractKeypointsJS(results);
+            socket.emit('keypoints', { keypoints: keypoints });
+        }
+
+        // 4. Khởi tạo MediaPipe (không đổi)
+        const holistic = new Holistic({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+        }});
+        holistic.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        holistic.onResults(onResults);
+
+        // 5. Khởi tạo Webcam (không đổi)
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await holistic.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        
+        // Bật camera ngay khi tải trang
+        camera.start(); 
+
+    </script>
+</body>
+</html>
