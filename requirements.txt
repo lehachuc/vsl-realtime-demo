@@ -1,7 +1,7 @@
-flask
-flask-socketio
-eventlet
-tensorflow-cpu
-numpy
-mediapipe
-gunicorn
+flask==3.0.0
+flask-socketio==5.3.6
+eventlet==0.33.3
+tensorflow-cpu==2.15.0
+numpy==1.26.2
+mediapipe==0.10.9
+gunicorn==21.2.0
