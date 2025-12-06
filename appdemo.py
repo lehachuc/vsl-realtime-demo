@@ -141,6 +141,7 @@ def handle_keypoints(data):
                 # Hết 5 giây -> Bắt đầu dự đoán
                 user_state['app_state'] = 'PREDICTING'
                 emit('status', {'state': 'PREDICTING', 'message': 'Đang xử lý...'})
+                socketio.sleep(0.5) # Cho client kịp nhận trạng thái
 
                 # Lấy mẫu lại 150 frames -> 60 frames
                 sequence = resample_keypoints(user_state['recording_sequence'], 60)
