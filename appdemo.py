@@ -12,7 +12,9 @@ import eventlet # Cần thiết cho server
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key_here_v5_realtime'
-socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*") 
+# socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*") 
+# Tăng giới hạn gói tin từ 16 (mặc định) lên 200
+socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*", max_decode_packets=200)
 
 # ================================================================
 # 2. TẢI MÔ HÌNH VÀ CÁC THIẾT LẬP
