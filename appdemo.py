@@ -63,7 +63,7 @@ def resample_keypoints(all_keypoints, target_frames=60):
 
 @app.route('/')
 def index():
-    return render_template('indexxx.html')
+    return render_template('newindex.html')
 
 FPS = 30
 PREPARE_SECONDS = 3

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VSL AI Recognition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <style>
+        :root {
+            --primary-color: #2563eb; /* Xanh dương hiện đại */
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-sub: #6b7280;
+            --danger-color: #ef4444; /* Đỏ */
+            --warning-color: #f59e0b; /* Vàng cam */
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* HEADER */
+        header {
+            background-color: var(--card-bg);
+            width: 100%;
+            padding: 15px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary-color);
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        header p {
+            margin: 5px 0 0;
+            font-size: 0.9rem;
+            color: var(--text-sub);
+        }
+
+        /* MAIN CONTAINER */
+        .main-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            width: 90%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* VIDEO AREA */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 4/3;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+        }
+
+        /* STATUS OVERLAY (Lớp phủ trạng thái) */
+        #status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(2px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        #status-overlay.visible {
+            opacity: 1;
+        }
+
+        .status-content {
+            text-align: center;
+            color: white;
+        }
+
+        #status-timer {
+            font-size: 6rem;
+            font-weight: 700;
+            line-height: 1;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        #status-message {
+            font-size: 1.5rem;
+            margin-top: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Hiệu ứng nhấp nháy cho Recording */
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .recording-border {
+            border: 4px solid var(--danger-color);
+            animation: pulse-red 2s infinite;
+        }
+
+        /* Hiệu ứng Loading Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* RESULT BOX (Khu vực kết quả) */
+        .result-box {
+            margin-top: 25px;
+            width: 100%;
+            max-width: 640px;
+            text-align: center;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .result-label {
+            font-size: 0.85rem;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        #final-prediction-text {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            min-height: 40px; /* Giữ chỗ để không bị nhảy layout */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Footer */
+        footer {
+            margin-top: auto;
+            padding: 20px;
+            font-size: 0.8rem;
+            color: var(--text-sub);
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Hệ Thống Nhận Diện Ngôn Ngữ Ký Hiệu</h1>
+        <p>AI Powered - Vietnamese Sign Language (VSL)</p>
+    </header>
+
+    <div class="main-container">
+        <div class="video-wrapper" id="video-wrapper">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="output_canvas" width="640" height="480"></canvas>
+            
+            <div id="status-overlay">
+                <div id="loading-spinner" class="spinner" style="display: none;"></div>
+                
+                <div class="status-content">
+                    <div id="status-timer"></div>
+                    <div id="status-message"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="result-box">
+            <div class="result-label">Kết quả nhận diện</div>
+            <div id="final-prediction-text">...</div>
+        </div>
+    </div>
+
+    <footer>
+        Demo Project by [Tên của bạn] - 2025
+    </footer>
+
+    <script>
+        // === DOM ELEMENTS ===
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const predictionText = document.getElementById('final-prediction-text');
+        
+        const videoWrapper = document.getElementById('video-wrapper');
+        const statusOverlay = document.getElementById('status-overlay');
+        const statusTimer = document.getElementById('status-timer');
+        const statusMessage = document.getElementById('status-message');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        // === SOCKET CONNECTION ===
+        // Kết nối WebSocket tối ưu cho Render
+        const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port, {
+            transports: ['websocket'] 
+        });
+
+        socket.on('connect', () => {
+            console.log('✅ Socket connected successfully!');
+        });
+
+        // === XỬ LÝ TRẠNG THÁI TỪ SERVER ===
+        socket.on('status', (data) => {
+            let state = data.state;
+            
+            // Reset các hiệu ứng
+            videoWrapper.classList.remove('recording-border');
+            loadingSpinner.style.display = 'none';
+            statusTimer.style.display = 'block';
+
+            if (state === 'IDLE') {
+                statusOverlay.classList.remove('visible');
+                // Giữ nguyên kết quả cũ, không xóa vội
+            } 
+            else if (state === 'COUNTDOWN') {
+                statusMessage.textContent = 'CHUẨN BỊ';
+                statusMessage.style.color = '#fbbf24'; // Màu vàng
+                statusTimer.textContent = data.time;
+                statusOverlay.classList.add('visible');
+            } 
+            else if (state === 'RECORDING') {
+                statusMessage.textContent = 'ĐANG GHI HÌNH';
+                statusMessage.style.color = '#ef4444'; // Màu đỏ
+                statusTimer.textContent = data.time;
+                statusOverlay.classList.add('visible');
+                
+                // Thêm viền đỏ nhấp nháy
+                videoWrapper.classList.add('recording-border');
+                
+                // Xóa kết quả cũ khi bắt đầu ghi mới
+                predictionText.textContent = "...";
+            } 
+            else if (state === 'PREDICTING') {
+                statusMessage.textContent = 'ĐANG XỬ LÝ...';
+                statusMessage.style.color = '#fff';
+                statusTimer.style.display = 'none'; // Ẩn số giây
+                loadingSpinner.style.display = 'block'; // Hiện vòng xoay
+                statusOverlay.classList.add('visible');
+                
+                videoWrapper.classList.remove('recording-border');
+            }
+        });
+
+        // === NHẬN KẾT QUẢ DỰ ĐOÁN ===
+        socket.on('prediction', (data) => {
+            predictionText.textContent = data.sentence;
+            // Hiệu ứng blink nhẹ khi có kết quả mới (optional)
+            predictionText.style.opacity = 0;
+            setTimeout(() => { predictionText.style.opacity = 1; }, 100);
+        });
+
+        // === MEDIAPIPE LOGIC ===
+        function extractKeypointsJS(results) {
+            const lh = results.leftHandLandmarks ? results.leftHandLandmarks.flatMap(res => [res.x, res.y, res.z]) : new Array(21 * 3).fill(0);
+            const rh = results.rightHandLandmarks ? results.rightHandLandmarks.flatMap(res => [res.x, res.y, res.z]) : new Array(21 * 3).fill(0);
+            return lh.concat(rh);
+        }
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            // Vẽ xương tay (làm mỏng nét vẽ lại cho tinh tế hơn)
+            if (results.leftHandLandmarks) {
+                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.8)', lineWidth: 2});
+                drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#ef4444', lineWidth: 1, radius: 2});
+            }
+            if (results.rightHandLandmarks) {
+                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.8)', lineWidth: 2});
+                drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#ef4444', lineWidth: 1, radius: 2});
+            }
+            canvasCtx.restore();
+
+            const keypoints = extractKeypointsJS(results);
+            socket.emit('keypoints', { keypoints: keypoints });
+        }
+
+        const holistic = new Holistic({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+        }});
+        holistic.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        holistic.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await holistic.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        
+        camera.start(); 
+
+    </script>
+</body>
+</html>
