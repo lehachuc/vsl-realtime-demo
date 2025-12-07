@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import tensorflow as tf # Vẫn cần TF nhưng chỉ dùng phần Lite
+import tensorflow as tf
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 import eventlet
@@ -11,21 +11,18 @@ import eventlet
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key_here_v5_realtime'
+# Tăng max_decode_packets để tránh lỗi nghẽn mạng
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*", max_decode_packets=200)
 
 # ================================================================
-# 2. TẢI MÔ HÌNH TFLITE (SIÊU NHẸ)
+# 2. TẢI MÔ HÌNH TFLITE
 # ================================================================
 
 try:
-    # Tải TFLite Interpreter
     interpreter = tf.lite.Interpreter(model_path="model.tflite")
     interpreter.allocate_tensors()
-
-    # Lấy thông tin input/output
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-    
     print("Đã tải model TFLite thành công!")
 except Exception as e:
     print(f"Lỗi khi tải mô hình TFLite: {e}")
@@ -71,16 +68,20 @@ RECORDING_SECONDS = 5
 PREPARE_FRAMES = PREPARE_SECONDS * FPS
 RECORDING_FRAMES = RECORDING_SECONDS * FPS
 
+# Ngưỡng chịu lỗi: Cho phép mất tay trong 15 frames (khoảng 0.5 giây) mà không bị reset
+MAX_MISSED_FRAMES = 15 
+
 user_state = {
     'app_state': 'IDLE',
     'recording_sequence': [],
-    'timer': 0
+    'timer': 0,
+    'missed_frames': 0  # Biến đếm số frame bị mất tay
 }
 
 @socketio.on('connect')
 def handle_connect():
     global user_state
-    user_state = {'app_state': 'IDLE', 'recording_sequence': [], 'timer': 0}
+    user_state = {'app_state': 'IDLE', 'recording_sequence': [], 'timer': 0, 'missed_frames': 0}
     print(f'Client {request.sid} connected. State reset.')
     emit('status', {'state': 'IDLE', 'message': 'Chờ phát hiện tay...'})
 
@@ -89,23 +90,31 @@ def handle_keypoints(data):
     global user_state
     try:
         keypoints = np.array(data['keypoints'])
+        # Kiểm tra xem có tay không (nếu toàn số 0 là không có tay)
         has_hands = np.any(keypoints != 0) 
+        
         app_state = user_state['app_state']
         
         if has_hands:
+            # Nếu có tay, reset biến đếm lỗi về 0
+            user_state['missed_frames'] = 0
+            
             if app_state == 'IDLE':
                 user_state['app_state'] = 'COUNTDOWN'
                 user_state['timer'] = PREPARE_FRAMES
                 emit('status', {'state': 'COUNTDOWN', 'time': PREPARE_SECONDS})
+                
             elif app_state == 'COUNTDOWN':
                 user_state['timer'] -= 1
                 remaining_sec = (user_state['timer'] // FPS) + 1
                 emit('status', {'state': 'COUNTDOWN', 'time': remaining_sec})
+                
                 if user_state['timer'] <= 0:
                     user_state['app_state'] = 'RECORDING'
                     user_state['timer'] = RECORDING_FRAMES
                     user_state['recording_sequence'] = [] 
                     emit('status', {'state': 'RECORDING', 'time': RECORDING_SECONDS})
+            
             elif app_state == 'RECORDING':
                 user_state['recording_sequence'].append(keypoints)
                 user_state['timer'] -= 1
@@ -117,38 +126,43 @@ def handle_keypoints(data):
                     emit('status', {'state': 'PREDICTING', 'message': 'Đang xử lý...'})
                     socketio.sleep(0.5)
 
-                    # --- DỰ ĐOÁN BẰNG TFLITE ---
+                    # --- DỰ ĐOÁN ---
                     try:
-                        # 1. Chuẩn bị dữ liệu
                         sequence = resample_keypoints(user_state['recording_sequence'], 60)
                         input_data = np.expand_dims(sequence, axis=0).astype(np.float32)
-
-                        # 2. Đặt dữ liệu vào TFLite
                         interpreter.set_tensor(input_details[0]['index'], input_data)
-
-                        # 3. Chạy dự đoán
                         interpreter.invoke()
-
-                        # 4. Lấy kết quả
                         output_data = interpreter.get_tensor(output_details[0]['index'])[0]
                         
                         predicted_index = np.argmax(output_data)
                         predicted_action = actions[predicted_index]
                         
-                        print(f"Kết quả TFLite: {predicted_action}", flush=True)
+                        print(f"Kết quả: {predicted_action}", flush=True)
                         emit('prediction', {'sentence': predicted_action})
                         
                     except Exception as e:
-                        print(f"LỖI TFLITE: {e}", flush=True)
+                        print(f"LỖI DỰ ĐOÁN: {e}", flush=True)
                         emit('prediction', {'sentence': f"Lỗi: {str(e)}"})
                     
                     user_state['app_state'] = 'IDLE'
                     emit('status', {'state': 'IDLE', 'message': 'Chờ phát hiện tay...'})
 
-        else:
+        else: 
+            # KHÔNG CÓ TAY (LOST TRACKING)
             if app_state == 'COUNTDOWN' or app_state == 'RECORDING':
-                user_state['app_state'] = 'IDLE'
-                emit('status', {'state': 'IDLE', 'message': 'Đã hủy.'})
+                # Tăng biến đếm lỗi
+                user_state['missed_frames'] += 1
+                
+                # Nếu mất tay quá lâu (vượt ngưỡng), mới thực sự Reset
+                if user_state['missed_frames'] > MAX_MISSED_FRAMES:
+                    user_state['app_state'] = 'IDLE'
+                    user_state['missed_frames'] = 0
+                    emit('status', {'state': 'IDLE', 'message': 'Mất tín hiệu tay. Đã hủy.'})
+                else:
+                    # Nếu chưa vượt ngưỡng, VẪN GIỮ trạng thái cũ, nhưng lấp đầy bằng frame cũ hoặc số 0
+                    # Ở đây ta tạm thời không append vào sequence để tránh nhiễu, hoặc append số 0 tùy chiến thuật
+                    # Chiến thuật tốt nhất: Vẫn gửi status cũ để UI không bị giật
+                    pass 
 
     except Exception as e:
         print(f"LỖI CHUNG: {e}", flush=True)

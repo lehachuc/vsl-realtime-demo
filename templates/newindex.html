@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VSL AI Recognition</title>
+    <title>Hệ Thống Nhận Diện VSL</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
@@ -13,18 +13,21 @@
     
     <style>
         :root {
-            --primary-color: #2563eb; /* Xanh dương hiện đại */
-            --bg-color: #f3f4f6;
-            --card-bg: #ffffff;
-            --text-main: #1f2937;
-            --text-sub: #6b7280;
-            --danger-color: #ef4444; /* Đỏ */
-            --warning-color: #f59e0b; /* Vàng cam */
+            /* Bảng màu dịu mắt (Soft Palette) */
+            --bg-body: #f0f4f8;          /* Xám xanh rất nhạt làm nền */
+            --bg-card: #ffffff;          /* Trắng cho các khung nội dung */
+            --primary: #3b82f6;          /* Xanh dương dịu */
+            --primary-dark: #1d4ed8;     /* Xanh đậm cho text header */
+            --text-main: #334155;        /* Xám đậm cho chữ (không dùng đen tuyền) */
+            --text-light: #64748b;       /* Xám nhạt cho phụ đề */
+            --accent-yellow: #f59e0b;    /* Vàng cho trạng thái chuẩn bị */
+            --accent-red: #ef4444;       /* Đỏ cho trạng thái ghi hình */
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: var(--bg-color);
+            background-color: var(--bg-body);
             color: var(--text-main);
             margin: 0;
             padding: 0;
@@ -34,44 +37,52 @@
             min-height: 100vh;
         }
 
-        /* HEADER */
+        /* --- HEADER --- */
         header {
-            background-color: var(--card-bg);
+            background-color: var(--bg-card);
             width: 100%;
-            padding: 15px 0;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px 0;
+            box-shadow: var(--shadow);
             text-align: center;
             margin-bottom: 30px;
+            border-bottom: 4px solid var(--primary);
         }
 
         header h1 {
             margin: 0;
-            font-size: 1.5rem;
-            color: var(--primary-color);
+            font-size: 1.8rem;
+            color: var(--primary-dark);
             font-weight: 700;
-            letter-spacing: 0.5px;
         }
 
         header p {
-            margin: 5px 0 0;
-            font-size: 0.9rem;
-            color: var(--text-sub);
+            margin: 8px 0 0;
+            font-size: 1rem;
+            color: var(--text-light);
         }
 
-        /* MAIN CONTAINER */
+        /* --- MAIN LAYOUT --- */
         .main-container {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
             width: 90%;
             max-width: 800px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            gap: 20px;
         }
 
-        /* VIDEO AREA */
+        /* --- VIDEO CARD --- */
+        .card {
+            background: var(--bg-card);
+            padding: 15px;
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
         .video-wrapper {
             position: relative;
             width: 100%;
@@ -79,8 +90,7 @@
             aspect-ratio: 4/3;
             border-radius: 12px;
             overflow: hidden;
-            background: #000;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            background: #e2e8f0; /* Màu nền giữ chỗ khi cam chưa lên */
         }
 
         #webcam {
@@ -99,14 +109,14 @@
             transform: scaleX(-1);
         }
 
-        /* STATUS OVERLAY (Lớp phủ trạng thái) */
+        /* --- OVERLAYS & STATUS --- */
         #status-overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.4);
+            background-color: rgba(0, 0, 0, 0.3); /* Làm tối nhẹ nền video */
             backdrop-filter: blur(2px);
             display: flex;
             flex-direction: column;
@@ -122,124 +132,127 @@
             opacity: 1;
         }
 
-        .status-content {
-            text-align: center;
-            color: white;
-        }
-
         #status-timer {
-            font-size: 6rem;
+            font-size: 5rem;
             font-weight: 700;
-            line-height: 1;
-            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            color: white;
+            text-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
 
         #status-message {
             font-size: 1.5rem;
-            margin-top: 10px;
             font-weight: 500;
+            color: white;
+            margin-top: 10px;
             text-transform: uppercase;
             letter-spacing: 1px;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 15px;
+            border-radius: 20px;
         }
 
-        /* Hiệu ứng nhấp nháy cho Recording */
-        @keyframes pulse-red {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+        /* Hiệu ứng viền nhấp nháy khi ghi hình */
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
 
-        .recording-border {
-            border: 4px solid var(--danger-color);
-            animation: pulse-red 2s infinite;
+        .recording-mode {
+            border: 3px solid var(--accent-red);
+            animation: pulse-border 2s infinite;
         }
 
-        /* Hiệu ứng Loading Spinner */
+        /* --- LOADING SPINNER --- */
         .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top: 4px solid #fff;
             width: 50px;
             height: 50px;
-            animation: spin 1s linear infinite;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
             margin-bottom: 15px;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
 
-        /* RESULT BOX (Khu vực kết quả) */
-        .result-box {
-            margin-top: 25px;
+        /* --- RESULT SECTION --- */
+        .result-container {
             width: 100%;
             max-width: 640px;
             text-align: center;
-            padding: 15px;
-            background: #f8fafc;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
+            margin-top: 10px;
         }
 
         .result-label {
-            font-size: 0.85rem;
-            color: var(--text-sub);
+            font-size: 0.9rem;
+            color: var(--text-light);
             text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 5px;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
         }
 
-        #final-prediction-text {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            min-height: 40px; /* Giữ chỗ để không bị nhảy layout */
+        .result-box {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            border-left: 5px solid var(--primary);
+            min-height: 60px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        
-        /* Footer */
+
+        #final-prediction-text {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+            margin: 0;
+        }
+
+        /* --- FOOTER --- */
         footer {
             margin-top: auto;
             padding: 20px;
-            font-size: 0.8rem;
-            color: var(--text-sub);
+            font-size: 0.85rem;
+            color: var(--text-light);
         }
-
     </style>
 </head>
 <body>
 
     <header>
-        <h1>Hệ Thống Nhận Diện Ngôn Ngữ Ký Hiệu</h1>
-        <p>AI Powered - Vietnamese Sign Language (VSL)</p>
+        <h1>Nhận Diện Ngôn Ngữ Ký Hiệu</h1>
+        <p>Hệ thống AI hỗ trợ người khiếm thính</p>
     </header>
 
     <div class="main-container">
-        <div class="video-wrapper" id="video-wrapper">
-            <video id="webcam" autoplay playsinline></video>
-            <canvas id="output_canvas" width="640" height="480"></canvas>
-            
-            <div id="status-overlay">
-                <div id="loading-spinner" class="spinner" style="display: none;"></div>
+        <div class="card">
+            <div class="video-wrapper" id="video-wrapper">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="output_canvas" width="640" height="480"></canvas>
                 
-                <div class="status-content">
+                <div id="status-overlay">
+                    <div id="loading-spinner" class="spinner" style="display: none;"></div>
                     <div id="status-timer"></div>
                     <div id="status-message"></div>
                 </div>
             </div>
         </div>
 
-        <div class="result-box">
+        <div class="result-container">
             <div class="result-label">Kết quả nhận diện</div>
-            <div id="final-prediction-text">...</div>
+            <div class="result-box">
+                <p id="final-prediction-text">...</p>
+            </div>
         </div>
     </div>
 
     <footer>
-        Demo Project by [Tên của bạn] - 2025
+        © 2025 Demo Project by Group 3 - Vietnamese Sign Language (VSL)
     </footer>
 
     <script>
@@ -256,7 +269,6 @@
         const loadingSpinner = document.getElementById('loading-spinner');
 
         // === SOCKET CONNECTION ===
-        // Kết nối WebSocket tối ưu cho Render
         const socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port, {
             transports: ['websocket'] 
         });
@@ -265,54 +277,51 @@
             console.log('✅ Socket connected successfully!');
         });
 
-        // === XỬ LÝ TRẠNG THÁI TỪ SERVER ===
+        // === XỬ LÝ TRẠNG THÁI ===
         socket.on('status', (data) => {
             let state = data.state;
             
-            // Reset các hiệu ứng
-            videoWrapper.classList.remove('recording-border');
+            // Reset UI
+            videoWrapper.classList.remove('recording-mode');
             loadingSpinner.style.display = 'none';
             statusTimer.style.display = 'block';
 
             if (state === 'IDLE') {
                 statusOverlay.classList.remove('visible');
-                // Giữ nguyên kết quả cũ, không xóa vội
             } 
             else if (state === 'COUNTDOWN') {
                 statusMessage.textContent = 'CHUẨN BỊ';
-                statusMessage.style.color = '#fbbf24'; // Màu vàng
+                statusMessage.style.color = '#fbbf24'; // Vàng
                 statusTimer.textContent = data.time;
                 statusOverlay.classList.add('visible');
             } 
             else if (state === 'RECORDING') {
                 statusMessage.textContent = 'ĐANG GHI HÌNH';
-                statusMessage.style.color = '#ef4444'; // Màu đỏ
+                statusMessage.style.color = '#ef4444'; // Đỏ
                 statusTimer.textContent = data.time;
                 statusOverlay.classList.add('visible');
                 
-                // Thêm viền đỏ nhấp nháy
-                videoWrapper.classList.add('recording-border');
-                
-                // Xóa kết quả cũ khi bắt đầu ghi mới
-                predictionText.textContent = "...";
+                videoWrapper.classList.add('recording-mode');
+                predictionText.textContent = "..."; // Xóa kết quả cũ
             } 
             else if (state === 'PREDICTING') {
                 statusMessage.textContent = 'ĐANG XỬ LÝ...';
                 statusMessage.style.color = '#fff';
-                statusTimer.style.display = 'none'; // Ẩn số giây
-                loadingSpinner.style.display = 'block'; // Hiện vòng xoay
+                statusTimer.style.display = 'none';
+                loadingSpinner.style.display = 'block';
                 statusOverlay.classList.add('visible');
-                
-                videoWrapper.classList.remove('recording-border');
             }
         });
 
-        // === NHẬN KẾT QUẢ DỰ ĐOÁN ===
+        // === NHẬN KẾT QUẢ ===
         socket.on('prediction', (data) => {
             predictionText.textContent = data.sentence;
-            // Hiệu ứng blink nhẹ khi có kết quả mới (optional)
-            predictionText.style.opacity = 0;
-            setTimeout(() => { predictionText.style.opacity = 1; }, 100);
+            // Hiệu ứng "blink" nhẹ khi có kết quả mới
+            predictionText.style.transform = "scale(1.1)";
+            predictionText.style.transition = "transform 0.2s";
+            setTimeout(() => {
+                predictionText.style.transform = "scale(1)";
+            }, 200);
         });
 
         // === MEDIAPIPE LOGIC ===
@@ -327,13 +336,13 @@
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
             
-            // Vẽ xương tay (làm mỏng nét vẽ lại cho tinh tế hơn)
+            // Vẽ xương tay với màu dịu hơn
             if (results.leftHandLandmarks) {
-                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.8)', lineWidth: 2});
+                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.7)', lineWidth: 2});
                 drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#ef4444', lineWidth: 1, radius: 2});
             }
             if (results.rightHandLandmarks) {
-                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.8)', lineWidth: 2});
+                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.7)', lineWidth: 2});
                 drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#ef4444', lineWidth: 1, radius: 2});
             }
             canvasCtx.restore();
@@ -362,7 +371,6 @@
         });
         
         camera.start(); 
-
     </script>
 </body>
 </html>
