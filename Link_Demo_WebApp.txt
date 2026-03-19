@@ -1,0 +1,3 @@
+https://vsl-demo-app.onrender.com/
+
+- webapp sẽ mất khoảng 10 phút khi chạy, để khởi tạo lại server, trong vòng 15 phút nếu không có người dùng truy cập server sẽ tắt. 
